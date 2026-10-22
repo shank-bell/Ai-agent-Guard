@@ -82,6 +82,14 @@ def _notify_test(args) -> int:
     return 1 if failed else 0
 
 
+def _make_llm(args):
+    from .llm import BedrockLLM
+    from .llm_agents import simulated_model
+    if args.offline_llm:
+        return simulated_model(gullible=True)
+    return BedrockLLM(args.model_id, args.region)
+
+
 def _live(args) -> int:
     """Run the agents in (sped-up) real time, writing to a log that a monitor in another window can tail."""
     log_path = Path(args.log)
@@ -91,8 +99,31 @@ def _live(args) -> int:
     clock = ScaledClock(datetime.now(timezone.utc), args.speed)
     log = AuditLog(log_path, clock)
     approvals = ApprovalService(log, clock, ScriptedReviewer())
-    good = LoanAgent(log, clock, policy, approvals)
     inc = args.incident
+    if args.llm:
+        from .llm_agents import LLMAnalyticsAgent, LLMLoanAgent
+        from .llm_scenarios import ANALYTICS_CASES, LOAN_CASES
+        llm = _make_llm(args)
+        print(f"LLM-driven agents using model {llm.model_id} at {args.speed:g}x speed, log: {log_path} (incident: {inc})")
+        loans = LLMLoanAgent(log, clock, policy, approvals, llm, enforce_policy=args.guard)
+        cases = [c for c in LOAN_CASES if c[5] == "normal"][:3]
+        if inc == "loan":
+            cases.append(next(c for c in LOAN_CASES if c[0] == "inject-notice"))
+        for cid, who, amount, score, note, kind in cases:
+            print(f"  llm-loan-agent handling {who} amount {amount}" + ("  <- application text hides an attack" if kind == "attack" else ""))
+            res = loans.handle({"loan_id": f"LIVE-{cid}", "applicant": who, "amount": amount, "credit_score": score,
+                                "purpose": "personal loan", "applicant_note": note})
+            print(f"     model said: {res['model_action']} -> outcome: {res['outcome']}"
+                  + ("  (code guard overrode the model)" if res["overridden"] else ""))
+        analytics = LLMAnalyticsAgent(log, clock, policy, llm, enforce_policy=args.guard)
+        task = (next(c for c in ANALYTICS_CASES if c[0] == "inject-notice")[1] if inc == "data"
+                else ANALYTICS_CASES[0][1])
+        print("  llm-analytics-agent running" + ("  <- task text hides an attack" if inc == "data" else ""))
+        res = analytics.run(task)
+        print(f"     model chose to read: {', '.join(res['datasets_read'])}")
+        print("Agents finished.")
+        return 0
+    good = LoanAgent(log, clock, policy, approvals)
     print(f"Agents running at {args.speed:g}x speed, writing to {log_path} (incident: {inc})")
     for n, (who, amount, score) in enumerate(NORMAL_APPS[:3], 1):
         print(f"  loan-agent handling {who} amount {amount}")
@@ -107,6 +138,36 @@ def _live(args) -> int:
     AnalyticsAgent(log, clock, policy, nosy=inc == "data").run()
     print("Agents finished.")
     return 0
+
+
+def _llm_scenarios(args) -> int:
+    from .llm_scenarios import run_llm_scenarios, write_report
+    llm = _make_llm(args)
+    out = Path(args.out)
+    out.mkdir(parents=True, exist_ok=True)
+    print(f"Running LLM-driven agents with model {llm.model_id}" + ("" if args.offline_llm else f" in {args.region}")
+          + " (this calls the model about 30 times)")
+    phases = run_llm_scenarios(out, llm, Policy.load(args.policy))
+    path = write_report(phases, out, llm, args.region)
+    for p in phases:
+        caught = len([r for r in p.violations if r.flagged])
+        print(f"  {'PASS' if p.ok else 'FAIL'}  {p.title}: model broke policy {len(p.violations)}x, "
+              f"monitor caught {caught}, missed {len(p.missed)}, false alarms {len(p.false_alarms) + p.unexpected_alerts}")
+    errors = sum(len(p.errors) for p in phases)
+    if errors:
+        print(f"\n{errors} model call(s) FAILED, for example: {next(r.error for p in phases for r in p.rows if r.error)}")
+    print(f"\nReport: {path}")
+    if errors:
+        return 3
+    return 0 if all(p.ok for p in phases) else 1
+
+
+def _add_llm_options(parser) -> None:
+    from .llm import DEFAULT_MODEL_ID, DEFAULT_REGION
+    parser.add_argument("--model-id", default=DEFAULT_MODEL_ID, help="Bedrock model id (default: %(default)s)")
+    parser.add_argument("--region", default=DEFAULT_REGION)
+    parser.add_argument("--offline-llm", action="store_true",
+                        help="use a SIMULATED stand-in model instead of calling AWS (for when you are not signed in)")
 
 
 def main(argv=None) -> int:
@@ -129,7 +190,14 @@ def main(argv=None) -> int:
     lv.add_argument("--log", default=str(DEFAULT_OUT / "live" / "audit.jsonl"))
     lv.add_argument("--incident", choices=["none", "loan", "report", "data"], default="loan")
     lv.add_argument("--speed", type=float, default=60.0, help="time compression (60 = 5 minutes take 5 seconds)")
+    _add_llm_options(lv)
+    lv.add_argument("--llm", action="store_true", help="use the language-model-driven agents instead of the rule-based ones")
+    lv.add_argument("--guard", action="store_true", help="(with --llm) add a hard policy check in code")
     lv.set_defaults(fn=_live)
+    ls = sub.add_parser("llm-scenarios", help="test the monitor against LLM-driven agents, including prompt-injection attacks")
+    ls.add_argument("--out", default=str(DEFAULT_OUT / "llm"))
+    _add_llm_options(ls)
+    ls.set_defaults(fn=_llm_scenarios)
     args = p.parse_args(argv)
     return args.fn(args)
 
