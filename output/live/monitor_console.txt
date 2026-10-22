@@ -1,0 +1,3 @@
+Watching output\live\audit.jsonl (Ctrl+C to stop)
+  ALERT ALR-0001 [CRITICAL] HUMAN_CONSENT_MISSING | loan-agent | Loan LIVE-X for 5000 approved without human consent
+        Policy requires a human to approve loans of 1000 or more, but no human approval was ever requested. Applicant cust-200.
