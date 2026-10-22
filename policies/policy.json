@@ -30,6 +30,16 @@
       "purpose": "Marketing analytics on aggregated, non-personal data.",
       "allowed_data": {"marketing_stats": ["read"], "loan_applications": ["read"]},
       "monitor_duration": true
+    },
+    "llm-loan-agent": {
+      "purpose": "LLM-driven loan decisions. The model decides; the same consent rule applies as for loan-agent.",
+      "allowed_data": {"loan_applications": ["read"], "credit_scores": ["read"]},
+      "monitor_duration": false
+    },
+    "llm-analytics-agent": {
+      "purpose": "LLM-driven marketing analytics. The model chooses which datasets to read.",
+      "allowed_data": {"marketing_stats": ["read"], "loan_applications": ["read"]},
+      "monitor_duration": false
     }
   }
 }
