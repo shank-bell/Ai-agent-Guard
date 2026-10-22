@@ -1,0 +1,35 @@
+{
+  "loan": {
+    "human_approval_required_from": 1000,
+    "authorized_approvers": ["alice.manager", "bob.risk"],
+    "approval_max_age_seconds": 86400,
+    "split_window_seconds": 3600
+  },
+  "duration": {
+    "min_history": 5,
+    "too_fast_ratio": 0.2,
+    "too_slow_ratio": 3.0
+  },
+  "resource_classification": {
+    "employee_salaries": "restricted",
+    "customer_pii_full": "restricted"
+  },
+  "agents": {
+    "loan-agent": {
+      "purpose": "Decide consumer loan applications. Below 1000 it may approve alone; from 1000 up a human must approve first.",
+      "allowed_data": {"loan_applications": ["read"], "credit_scores": ["read"]},
+      "monitor_duration": false
+    },
+    "report-agent": {
+      "purpose": "Build the daily sales report.",
+      "allowed_data": {"sales_summary": ["read"], "reports": ["read", "write"]},
+      "monitor_duration": true,
+      "expected_task_seconds": {"daily_report": 300}
+    },
+    "analytics-agent": {
+      "purpose": "Marketing analytics on aggregated, non-personal data.",
+      "allowed_data": {"marketing_stats": ["read"], "loan_applications": ["read"]},
+      "monitor_duration": true
+    }
+  }
+}
