@@ -149,7 +149,7 @@ def test_monitor_never_touches_the_agents():
     """The monitor must work from the log alone, so it may not import the agent code."""
     src = Path(cli.__file__).with_name("monitor.py").read_text(encoding="utf-8")
     imports = re.findall(r"^\s*(?:from|import)\s+(\S+)", src, re.M)
-    assert not [i for i in imports if i in (".agents", ".approval", ".scenarios", ".cli")]
+    assert not [i for i in imports if i in (".agents", ".approval", ".scenarios", ".cli", ".llm", ".llm_agents")]
 
 
 def test_cli_monitor_exit_code_reflects_alerts(rig, capsys):
